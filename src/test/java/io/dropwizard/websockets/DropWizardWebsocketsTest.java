@@ -29,8 +29,9 @@ import java.io.IOException;
 import java.net.URI;
 import java.util.concurrent.CountDownLatch;
 import static java.util.concurrent.TimeUnit.SECONDS;
+import static org.junit.Assert.*;
+
 import javax.websocket.Session;
-import junit.framework.Assert;
 import org.apache.http.client.config.RequestConfig;
 import org.apache.http.client.methods.HttpGet;
 import org.apache.http.conn.HttpHostConnectException;
@@ -41,119 +42,119 @@ import org.apache.http.impl.client.HttpClients;
 import org.glassfish.tyrus.client.ClientManager;
 import org.glassfish.tyrus.client.ClientProperties;
 import org.glassfish.tyrus.ext.client.java8.SessionBuilder;
-import org.junit.After;
-import static org.junit.Assert.*;
-import org.junit.Before;
-import org.junit.BeforeClass;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 public class DropWizardWebsocketsTest {
-    @BeforeClass
-    public static void setUpClass() throws InterruptedException, IOException {
-        CountDownLatch serverStarted = new CountDownLatch(1);
-        Thread serverThread = new Thread(GeneralUtils.rethrow(() -> new MyApp(serverStarted).run(new String[]{"server", Resources.getResource("server.yml").getPath()})));
-        serverThread.setDaemon(true);
-        serverThread.start();
-        serverStarted.await(10, SECONDS);
-    }
-    private static final String TRAVIS_ENV = "TRAVIS_ENV";
-    private CloseableHttpClient client;
-    private ObjectMapper om;
-    private ClientManager wsClient;
+	@BeforeAll
+	public static void setUpClass() throws InterruptedException, IOException {
+		CountDownLatch serverStarted = new CountDownLatch(1);
+		Thread serverThread = new Thread(GeneralUtils.rethrow(() -> new MyApp(serverStarted)
+				.run(new String[] { "server", Resources.getResource("server.yml").getPath() })));
+		serverThread.setDaemon(true);
+		serverThread.start();
+		serverStarted.await(10, SECONDS);
+	}
 
-    @Before
-    public void setUp() throws Exception {
+	private static final String TRAVIS_ENV = "TRAVIS_ENV";
+	private CloseableHttpClient client;
+	private ObjectMapper om;
+	private ClientManager wsClient;
 
-        this.client = HttpClients.custom()
-                .setServiceUnavailableRetryStrategy(new DefaultServiceUnavailableRetryStrategy(3, 2000))
-                .setDefaultRequestConfig(RequestConfig.custom()
-                        .setSocketTimeout(10000)
-                        .setConnectTimeout(10000)
-                        .setConnectionRequestTimeout(10000)
-                        .build()).build();
-        this.om = new ObjectMapper();
-        this.wsClient = ClientManager.createClient();
-        wsClient.getProperties().put(ClientProperties.HANDSHAKE_TIMEOUT, 10000);        
-            if (System.getProperty(TRAVIS_ENV) != null) {
-                System.out.println("waiting for Travis machine");
-                waitUrlAvailable(String.format("http://%s:%d/api?name=foo", LOCALHOST, PORT));
+	@BeforeEach
+	public void setUp() throws Exception {
+		this.client = HttpClients.custom()
+				.setServiceUnavailableRetryStrategy(new DefaultServiceUnavailableRetryStrategy(3, 2000))
+				.setDefaultRequestConfig(RequestConfig.custom().setSocketTimeout(10000).setConnectTimeout(10000)
+						.setConnectionRequestTimeout(10000).build())
+				.build();
+		this.om = new ObjectMapper();
+		this.wsClient = ClientManager.createClient();
+		wsClient.getProperties().put(ClientProperties.HANDSHAKE_TIMEOUT, 10000);
+		if (System.getProperty(TRAVIS_ENV) != null) {
+			System.out.println("waiting for Travis machine");
+			waitUrlAvailable(String.format("http://%s:%d/api?name=foo", LOCALHOST, PORT));
 //                Thread.sleep(1); // Ugly sleep to debug travis            
-            }
-    }
+		}
+	}
 
-    @After
-    public void tearDown() throws Exception {
-        client.close();
-    }
+	@AfterEach
+	public void tearDown() throws Exception {
+		client.close();
+	}
 
-    @Test
-    public void testGet() throws IOException, InterruptedException, Exception {
-        final int NUM = 2;
-        for (int i = 0; i < NUM; i++) {
-            assertTrue(client.execute(new HttpGet(String.format("http://%s:%d/api?name=foo", LOCALHOST, PORT)), BASIC_RESPONSE_HANDLER).contains("foo"));
-        }
-        ObjectNode json = om.readValue(client.execute(new HttpGet(METRICS_URL), BASIC_RESPONSE_HANDLER), ObjectNode.class);
-        Assert.assertEquals(NUM,
-                json.path("meters").path(MyApp.MyResource.class.getName() + ".get").path("count").asInt());
+	@Test
+	public void testGet() throws IOException, InterruptedException, Exception {
+		final int NUM = 2;
+		for (int i = 0; i < NUM; i++) {
+			assertTrue(client.execute(new HttpGet(String.format("http://%s:%d/api?name=foo", LOCALHOST, PORT)),
+					BASIC_RESPONSE_HANDLER).contains("foo"));
+		}
+		ObjectNode json = om.readValue(client.execute(new HttpGet(METRICS_URL), BASIC_RESPONSE_HANDLER),
+				ObjectNode.class);
+		Assertions.assertEquals(NUM,
+				json.path("meters").path(MyApp.MyResource.class.getName() + ".get").path("count").asInt());
 
-    }
+	}
 
-    @Test
-    public void testAnnotatedWebsocket() throws Exception {
-        testWsMetrics(MyApp.AnnotatedEchoServer.class, "annotated-ws");
-    }
+	@Test
+	public void testAnnotatedWebsocket() throws Exception {
+		testWsMetrics(MyApp.AnnotatedEchoServer.class, "annotated-ws");
+	}
 
-    @Test
-    public void testExtendsWebsocket() throws Exception {
-        testWsMetrics(MyApp.EchoServer.class, "extends-ws");
-    }
+	@Test
+	public void testExtendsWebsocket() throws Exception {
+		testWsMetrics(MyApp.EchoServer.class, "extends-ws");
+	}
 
-    private void testWsMetrics(final Class<?> klass, final String path) throws Exception {
-        try (Session ws = new SessionBuilder(wsClient)
-                .uri(new URI(String.format("ws://%s:%d/%s", LOCALHOST, PORT, path)))
-                .connect()) {
-            for (int i = 0; i < 3; i++) {
-                ws.getAsyncRemote().sendText("hello");
-            }
-            ObjectNode json = om.readValue(client.execute(new HttpGet(METRICS_URL), BASIC_RESPONSE_HANDLER), ObjectNode.class);
-            // One open connection
-            Assert.assertEquals(1,
-                    json.path("counters").path(klass.getName() + ".openConnections").path("count").asInt());
-        }
-        ObjectNode json = om.readValue(client.execute(new HttpGet(METRICS_URL), BASIC_RESPONSE_HANDLER), ObjectNode.class);
+	private void testWsMetrics(final Class<?> klass, final String path) throws Exception {
+		try (Session ws = new SessionBuilder(wsClient)
+				.uri(new URI(String.format("ws://%s:%d/%s", LOCALHOST, PORT, path))).connect()) {
+			for (int i = 0; i < 3; i++) {
+				ws.getAsyncRemote().sendText("hello");
+			}
+			ObjectNode json = om.readValue(client.execute(new HttpGet(METRICS_URL), BASIC_RESPONSE_HANDLER),
+					ObjectNode.class);
+			// One open connection
+			Assertions.assertEquals(1,
+					json.path("counters").path(klass.getName() + ".openConnections").path("count").asInt());
+		}
+		ObjectNode json = om.readValue(client.execute(new HttpGet(METRICS_URL), BASIC_RESPONSE_HANDLER),
+				ObjectNode.class);
 
-        // Number of sessions that were opened
-        Assert.assertEquals(1,
-                json.path("timers").path(klass.getName()).path("count").asInt());
+		// Number of sessions that were opened
+		Assertions.assertEquals(1, json.path("timers").path(klass.getName()).path("count").asInt());
 
-        // Length of session should be 5ms
-        Assert.assertEquals(0.05, json.path("timers").path(klass.getName()).path("max").asDouble(), 1);
+		// Length of session should be 5ms
+		Assertions.assertEquals(0.05, json.path("timers").path(klass.getName()).path("max").asDouble(), 1);
 
-        // No Open connections
-        Assert.assertEquals(0,
-                json.path("counters").path(klass.getName() + ".openConnections").path("count").asInt());
+		// No Open connections
+		Assertions.assertEquals(0,
+				json.path("counters").path(klass.getName() + ".openConnections").path("count").asInt());
 
-        // Three text messages
-        Assert.assertEquals(3,
-                json.path("meters").path(klass.getName() + ".OnMessage").path("count").asInt());
-    }
+		// Three text messages
+		Assertions.assertEquals(3, json.path("meters").path(klass.getName() + ".OnMessage").path("count").asInt());
+	}
 
-    public static void waitUrlAvailable(final String url) throws InterruptedException, IOException {
-        for (int i = 0; i < 50; i++) {
-            Thread.sleep(100);
-            try {
-                if (HttpClients.createDefault().execute(new HttpGet(url)).getStatusLine().getStatusCode() > -100)
-                    break;
-            } catch (HttpHostConnectException ex) {
-            }
-        }
-    }
+	public static void waitUrlAvailable(final String url) throws InterruptedException, IOException {
+		for (int i = 0; i < 50; i++) {
+			Thread.sleep(100);
+			try {
+				if (HttpClients.createDefault().execute(new HttpGet(url)).getStatusLine().getStatusCode() > -100)
+					break;
+			} catch (HttpHostConnectException ex) {
+			}
+		}
+	}
 
-    private static final int ADMIN_PORT = 48081;
-    private static final int PORT = 48080;
-    private static final String LOCALHOST = "127.0.0.1";
-    private static final String METRICS_URL = String.format("http://%s:%d/metrics", LOCALHOST, ADMIN_PORT);
-    private static final BasicResponseHandler BASIC_RESPONSE_HANDLER = new BasicResponseHandler();
-    private static final String HEALTHCHECK = String.format("http://%s:%d/healthcheck", LOCALHOST, ADMIN_PORT);
+	private static final int ADMIN_PORT = 48081;
+	private static final int PORT = 48080;
+	private static final String LOCALHOST = "127.0.0.1";
+	private static final String METRICS_URL = String.format("http://%s:%d/metrics", LOCALHOST, ADMIN_PORT);
+	private static final BasicResponseHandler BASIC_RESPONSE_HANDLER = new BasicResponseHandler();
+	private static final String HEALTHCHECK = String.format("http://%s:%d/healthcheck", LOCALHOST, ADMIN_PORT);
 
 }

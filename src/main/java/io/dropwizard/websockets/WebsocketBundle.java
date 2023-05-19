@@ -22,11 +22,10 @@
  */
 package io.dropwizard.websockets;
 
-import io.dropwizard.Bundle;
+import io.dropwizard.core.ConfiguredBundle;
 import io.dropwizard.metrics.jetty9.websockets.InstWebSocketServerContainerInitializer;
-import io.dropwizard.setup.Bootstrap;
-import io.dropwizard.setup.Environment;
-import org.eclipse.jetty.util.component.AbstractLifeCycle;
+import io.dropwizard.core.setup.Bootstrap;
+import io.dropwizard.core.setup.Environment;
 import org.eclipse.jetty.util.component.LifeCycle;
 import org.eclipse.jetty.websocket.jsr356.server.ServerContainer;
 import org.slf4j.Logger;
@@ -42,7 +41,7 @@ import java.util.Collection;
 
 import static io.dropwizard.websockets.GeneralUtils.rethrow;
 
-public class WebsocketBundle implements Bundle {
+public class WebsocketBundle<T> implements ConfiguredBundle<T> {
 
     private final Collection<ServerEndpointConfig> endpointConfigs = new ArrayList<>();
     private static final Logger LOG = LoggerFactory.getLogger(WebsocketBundle.class);
@@ -93,8 +92,8 @@ public class WebsocketBundle implements Bundle {
     }
 
     @Override
-    public void run(Environment environment) {
-        environment.lifecycle().addLifeCycleListener(new AbstractLifeCycle.AbstractLifeCycleListener() {
+    public void run(T configuration, Environment environment) {
+        environment.lifecycle().addEventListener(new LifeCycle.Listener() {
 
             @Override
             public void lifeCycleStarting(LifeCycle event) {

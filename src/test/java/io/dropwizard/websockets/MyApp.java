@@ -26,11 +26,10 @@ import com.codahale.metrics.annotation.ExceptionMetered;
 import com.codahale.metrics.annotation.Metered;
 import com.codahale.metrics.annotation.Timed;
 import com.codahale.metrics.health.HealthCheck;
-import io.dropwizard.Application;
-import io.dropwizard.Configuration;
-import io.dropwizard.setup.Bootstrap;
-import io.dropwizard.setup.Environment;
-import org.eclipse.jetty.util.component.AbstractLifeCycle;
+import io.dropwizard.core.Application;
+import io.dropwizard.core.Configuration;
+import io.dropwizard.core.setup.Bootstrap;
+import io.dropwizard.core.setup.Environment;
 import org.eclipse.jetty.util.component.LifeCycle;
 
 import javax.servlet.ServletException;
@@ -56,15 +55,15 @@ public class MyApp extends Application<Configuration> {
 
     @Override
     public void initialize(Bootstrap<Configuration> bootstrap) {
-        websocketBundle = new WebsocketBundle(AnnotatedEchoServer.class);
+        websocketBundle = new WebsocketBundle<Configuration>(AnnotatedEchoServer.class);
         bootstrap.addBundle(websocketBundle);
     }
 
-    private WebsocketBundle websocketBundle;
+    private WebsocketBundle<Configuration> websocketBundle;
 
     @Override
     public void run(Configuration configuration, Environment environment) throws InvalidKeySpecException, NoSuchAlgorithmException, ServletException, DeploymentException {
-        environment.lifecycle().addLifeCycleListener(new AbstractLifeCycle.AbstractLifeCycleListener() {
+        environment.lifecycle().addEventListener(new LifeCycle.Listener() {
 
             @Override
             public void lifeCycleStarted(LifeCycle event) {
